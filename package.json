@@ -1,0 +1,16 @@
+{
+  "name": "transit-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Marc Scattolin",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "gtfs": "^4.4.3"
+  }
+}
