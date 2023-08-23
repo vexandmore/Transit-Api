@@ -2,6 +2,7 @@
 import { closeDb, importGtfs, openDb, getStops, getStoptimes, getCalendars, getTrips } from 'gtfs';
 import express from 'express';
 import {PORT, config} from './config.js';
+import { getDistance } from 'geolib';
 
 const app = express();
 
@@ -72,14 +73,58 @@ function getCurrentServiceIds() {
     return currentServiceIds;
 }
 
+function makeCoord(stop) {
+    return {latitude: stop.stop_lat, longitude: stop.stop_lon};
+}
+
+function getStopsNearUs(coords, radius) {
+    var stops = getStops({}, ['stop_id', 'stop_lat', 'stop_lon', 'wheelchair_boarding']);
+    const stopsInRadius = {};
+    for (const stop of stops) {
+        if (getDistance(coords, makeCoord(stop), 1) <= radius) {
+
+            stopsInRadius[stop.stop_id] = {stop_lat: stop.stop_lat, stop_lon: stop.stop_lon};
+        }
+    }
+    return stopsInRadius;
+}
+
+function getClosestStoptime(stopTimes, closeStops, coords) {
+    if (stopTimes.length === 0)  {
+        return null;
+    }
+
+    let min = stopTimes[0];
+    let minDistance = getDistance(coords, makeCoord(closeStops[stopTimes[0].stop_id]));
+    for (let i = 1; i < stopTimes.length; i++) {
+        const currentDistance = getDistance(coords, makeCoord(closeStops[stopTimes[i].stop_id]));
+        if (currentDistance < minDistance) {
+            min = stopTimes[i];
+            minDistance = currentDistance;
+        }
+    }
+    return min;
+}
+
 app.get("/transit", (request, response) => {
     try {
-        const stoptimes = getStoptimes({stop_id: Number(request.query.stop_id)}, ['trip_id', 'arrival_time', 'departure_time', 'pickup_type']);
+        const coords = {longitude: Number(request.query.longitude), latitude: Number(request.query.latitude)};
+        const radius = Number(request.query.radius);
+        const stopsInRadius = getStopsNearUs(coords, radius);
+
+        const stopTimes = [];
+        for (const stop_id in stopsInRadius) {
+            if (Object.prototype.hasOwnProperty.call(stopsInRadius, stop_id)) {
+                // Only loop over the properties not in the prototype (ie only the stop ids added to it)
+                stopTimes.push(...getStoptimes({stop_id: stop_id}, ['stop_id', 'trip_id', 'arrival_time', 'departure_time', 'pickup_type']));
+            }
+        }
+
         const todayStoptimes = [];
         const currentServiceIds = getCurrentServiceIds();
         
-        // Get only stoptimes for today and those that allow pickup
-        for (const stop of stoptimes) {
+        // Get only stoptimes for today that allow pickup
+        for (const stop of stopTimes) {
             if (stop.pickup_type !== 0) {
                 break;
             }
@@ -95,15 +140,50 @@ app.get("/transit", (request, response) => {
                 }    
             }
         }
+
+        // Deduplicate stops (if one bus line stops at many stops in radius, only keep closest)
+        // Sort by trip_id to keep easier, since duplicates will have same trip_id
+        const deduplicatedStops = [];
+        todayStoptimes.sort((a, b) => {
+            return a.trip_id.localeCompare(b.trip_id);
+        });
+        for (let i = 0; i < todayStoptimes.length; i++) {
+            if (i === todayStoptimes.length - 1) {
+                deduplicatedStops.push(todayStoptimes[i]);
+                break;
+            }
+
+            if (todayStoptimes[i].trip_id === todayStoptimes[i + 1].trip_id) {
+                let lastIndex = i;
+                for (; lastIndex < todayStoptimes.length - 1; lastIndex++) {
+                    try {
+                        if (todayStoptimes[lastIndex].trip_id !== todayStoptimes[lastIndex + 1].trip_id) {
+                            break;
+                        }
+                    } catch (e) {
+                        console.log("lol");
+                    }
+                }
+                const duplicates = todayStoptimes.slice(i, lastIndex + 1);
+
+                const closest = getClosestStoptime(duplicates, stopsInRadius, coords);
+                deduplicatedStops.push(closest);
+                i = lastIndex; // the i++ will increment it past the last index
+            } else {
+                deduplicatedStops.push(todayStoptimes[i]);
+            }
+        }
+        
         
         // Sort based on departure time
-        todayStoptimes.sort((a, b) => {
+        deduplicatedStops.sort((a, b) => {
             return compareDepartureTimes(a.departure_time, b.departure_time);
         });
 
+
         // Get ones after now
         const now = nowString();
-        const upcomingTimes = todayStoptimes.filter((a) => compareDepartureTimes(a.departure_time, now) >= 0);
+        const upcomingTimes = deduplicatedStops.filter((a) => compareDepartureTimes(a.departure_time, now) >= 0);
 
         response.status(200).json({ stopTimes: upcomingTimes });
     } catch(error) {
