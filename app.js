@@ -120,11 +120,45 @@ app.get("/transit", (request, response) => {
             }
         }
 
-        const todayStoptimes = [];
+        // Deduplicate stops (if one bus line stops at many stops in radius, only keep closest)
+        // Sort by trip_id to keep easier, since duplicates will have same trip_id
+        const deduplicatedStops = [];
+        stopTimes.sort((a, b) => {
+            return a.trip_id.localeCompare(b.trip_id);
+        });
+
+        for (let i = 0; i < stopTimes.length; i++) {
+            if (i === stopTimes.length - 1) {
+                deduplicatedStops.push(stopTimes[i]);
+                break;
+            }
+
+            if (stopTimes[i].trip_id === stopTimes[i + 1].trip_id) {
+                let lastIndex = i;
+                for (; lastIndex < stopTimes.length - 1; lastIndex++) {
+                    try {
+                        if (stopTimes[lastIndex].trip_id !== stopTimes[lastIndex + 1].trip_id) {
+                            break;
+                        }
+                    } catch (e) {
+                        console.log("lol");
+                    }
+                }
+                const duplicates = stopTimes.slice(i, lastIndex + 1);
+
+                const closest = getClosestStoptime(duplicates, stopsInRadius, coords);
+                deduplicatedStops.push(closest);
+                i = lastIndex; // the i++ will increment it past the last index
+            } else {
+                deduplicatedStops.push(stopTimes[i]);
+            }
+        }
+
         const currentServiceIds = getCurrentServiceIds();
-        
+        const todayStoptimes = [];
+
         // Get only stoptimes for today that allow pickup
-        for (const stop of stopTimes) {
+        for (const stop of deduplicatedStops) {
             if (stop.pickup_type !== 0) {
                 break;
             }
@@ -140,50 +174,16 @@ app.get("/transit", (request, response) => {
                 }    
             }
         }
-
-        // Deduplicate stops (if one bus line stops at many stops in radius, only keep closest)
-        // Sort by trip_id to keep easier, since duplicates will have same trip_id
-        const deduplicatedStops = [];
-        todayStoptimes.sort((a, b) => {
-            return a.trip_id.localeCompare(b.trip_id);
-        });
-        for (let i = 0; i < todayStoptimes.length; i++) {
-            if (i === todayStoptimes.length - 1) {
-                deduplicatedStops.push(todayStoptimes[i]);
-                break;
-            }
-
-            if (todayStoptimes[i].trip_id === todayStoptimes[i + 1].trip_id) {
-                let lastIndex = i;
-                for (; lastIndex < todayStoptimes.length - 1; lastIndex++) {
-                    try {
-                        if (todayStoptimes[lastIndex].trip_id !== todayStoptimes[lastIndex + 1].trip_id) {
-                            break;
-                        }
-                    } catch (e) {
-                        console.log("lol");
-                    }
-                }
-                const duplicates = todayStoptimes.slice(i, lastIndex + 1);
-
-                const closest = getClosestStoptime(duplicates, stopsInRadius, coords);
-                deduplicatedStops.push(closest);
-                i = lastIndex; // the i++ will increment it past the last index
-            } else {
-                deduplicatedStops.push(todayStoptimes[i]);
-            }
-        }
         
-        
+        // Get ones after now
+        const now = nowString();
+        const upcomingTimes = todayStoptimes.filter((a) => compareDepartureTimes(a.departure_time, now) >= 0);
+                
         // Sort based on departure time
-        deduplicatedStops.sort((a, b) => {
+        upcomingTimes.sort((a, b) => {
             return compareDepartureTimes(a.departure_time, b.departure_time);
         });
 
-
-        // Get ones after now
-        const now = nowString();
-        const upcomingTimes = deduplicatedStops.filter((a) => compareDepartureTimes(a.departure_time, now) >= 0);
 
         response.status(200).json({ stopTimes: upcomingTimes });
     } catch(error) {
