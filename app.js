@@ -1,5 +1,5 @@
 "use strict"
-import { closeDb, importGtfs, openDb, getStops, getStoptimes, getCalendars, getTrips } from 'gtfs';
+import { closeDb, importGtfs, openDb, getStops, getStoptimes, getCalendars, getTrips, getRoutes } from 'gtfs';
 import express from 'express';
 import { PORT, config, defaultRadius, defaultMinutesInFuture } from './config.js';
 import { getDistance, timeConversion } from 'geolib';
@@ -199,7 +199,10 @@ app.get("/transit", (request, response) => {
                     if (currentServiceId === trip.service_id) {
                         stop.trip_headsign = trip.trip_headsign;
                         stop.wheelchair_accessible = trip.wheelchair_accessible;
-                        
+                        const route = getRoutes({route_id: trip.route_id}, ['route_short_name', 'route_color', 'route_text_color'])[0];
+                        stop.route_short_name = route.route_short_name;
+                        stop.route_color = route.route_color;
+                        stop.route_text_color = route.route_text_color;
                         todayStoptimes.push(stop);
                     }
                 }    
