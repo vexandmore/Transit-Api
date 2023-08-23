@@ -74,18 +74,22 @@ function getCurrentServiceIds() {
 
 app.get("/transit", (request, response) => {
     try {
-        const stoptimes = getStoptimes({stop_id: Number(request.query.stop_id)});
+        const stoptimes = getStoptimes({stop_id: Number(request.query.stop_id)}, ['trip_id', 'arrival_time', 'departure_time', 'pickup_type']);
         const todayStoptimes = [];
         const currentServiceIds = getCurrentServiceIds();
         
-        // Get only stoptimes for today
-        
+        // Get only stoptimes for today and those that allow pickup
         for (const stop of stoptimes) {
+            if (stop.pickup_type !== 0) {
+                break;
+            }
             const trips = getTrips({trip_id: stop.trip_id});
             if (trips.length === 1) {
                 const trip = trips[0];
                 for (const currentServiceId of currentServiceIds) {
                     if (currentServiceId === trip.service_id) {
+                        stop.trip_headsign = trip.trip_headsign;
+                        stop.wheelchair_accessible = trip.wheelchair_accessible;
                         todayStoptimes.push(stop);
                     }
                 }    
@@ -97,7 +101,7 @@ app.get("/transit", (request, response) => {
             return compareDepartureTimes(a.departure_time, b.departure_time);
         });
 
-        // Get ones after today
+        // Get ones after now
         const now = nowString();
         const upcomingTimes = todayStoptimes.filter((a) => compareDepartureTimes(a.departure_time, now) >= 0);
 
