@@ -213,7 +213,7 @@ app.get("/transit", (request, response) => {
         todayStoptimes.sort((a, b) => {
             return compareDepartureTimes(a.departure_time, b.departure_time);
         });
-
+        response.set("Access-Control-Allow-Origin", "*");
         response.status(200).json({ stopTimes: todayStoptimes });
     } catch(error) {
         response.status(500).send(error.toString());
