@@ -189,23 +189,25 @@ app.get("/transit", (request, response) => {
 
         // Get only stoptimes for today that allow pickup and add bus line
         for (const stop of deduplicatedStops) {
-            if (stop.pickup_type !== 0) {
-                break;
+            if (stop.pickup_type !== 0 && stop.pickup_type !== null) {
+                continue;
             }
             const trips = getTrips({trip_id: stop.trip_id});
             if (trips.length === 1) {
                 const trip = trips[0];
-                for (const currentServiceId of currentServiceIds) {
-                    if (currentServiceId === trip.service_id) {
-                        stop.trip_headsign = trip.trip_headsign;
-                        stop.wheelchair_accessible = trip.wheelchair_accessible;
-                        const route = getRoutes({route_id: trip.route_id}, ['route_short_name', 'route_color', 'route_text_color'])[0];
-                        stop.route_short_name = route.route_short_name;
-                        stop.route_color = route.route_color;
-                        stop.route_text_color = route.route_text_color;
-                        todayStoptimes.push(stop);
-                    }
-                }    
+                if (currentServiceIds.includes(trip.service_id)) {
+                    stop.trip_headsign = trip.trip_headsign;
+                    stop.wheelchair_accessible = trip.wheelchair_accessible;
+                    const route = getRoutes({route_id: trip.route_id}, ['route_short_name', 'route_color', 'route_text_color'])[0];
+                    stop.route_short_name = route.route_short_name;
+                    stop.route_color = route.route_color;
+                    stop.route_text_color = route.route_text_color;
+                    todayStoptimes.push(stop);
+                } else {
+                    console.log();
+                }
+            } else {
+                console.log();
             }
         }
         
