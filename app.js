@@ -1,5 +1,5 @@
 "use strict"
-import { closeDb, importGtfs, openDb, getStops, getStoptimes, getCalendars, getTrips, getRoutes } from 'gtfs';
+import { closeDb, importGtfs, openDb, getStops, getStoptimes, getCalendars, getCalendarDates, getTrips, getRoutes } from 'gtfs';
 import express from 'express';
 import { PORT, config, defaultRadius, defaultMinutesInFuture } from './config.js';
 import { getDistance, timeConversion } from 'geolib';
@@ -15,9 +15,9 @@ app.get("/status", (request, response) => {
     response.send(status);
 });
 
-await importGtfs(config);
-const db = openDb({});
 
+await importGtfs(config);
+// await importGtfs({sqlitePath: "./db"});
 
 function compareDepartureTimes(time1, time2) {
     time1 = String(time1);
@@ -61,12 +61,21 @@ function nowString() {
     return nowStr;
 }
 
+function padNumber(n) {
+    if (n < 10) {
+        return "0" + n;
+    } else {
+        return n.toString();
+    }
+}
+
 function getCurrentServiceIds() {
     const calendarInfo = getCalendars();
-    const currentDay = new Date().getDay();
+    const now = new Date();
+    const currentDay = now.getDay();
 
-    // Which service types are running today
-    const currentServiceIds = [];
+    // Which service types are running this day of week
+    let currentServiceIds = [];
     for (const info of calendarInfo) {
         switch (currentDay) {
             case 0:
@@ -92,6 +101,26 @@ function getCurrentServiceIds() {
                 break;
         }
     }
+
+    // Account for exceptions (eg holiday schedules)
+    let month = padNumber(now.getMonth() + 1); // Month is 1-indexed in gtfs
+    let day = padNumber(now.getDay());
+    let dateString = now.getFullYear() + month + day;
+
+    const calendarDates = getCalendarDates();
+    for (const date of calendarDates) {
+        if (String(date.date) === dateString) {
+            // If exception type 2, remove that service id
+            if (date.exception_type === 2) {
+                currentServiceIds = currentServiceIds.filter((val) => val != date.service_id);
+            }
+            // If exception type 1, add the service id
+            if (date.exception_type === 1) {
+                currentServiceIds.push(date.service_id);
+            }
+        }
+    }
+    console.log(currentServiceIds);
     return currentServiceIds;
 }
 
